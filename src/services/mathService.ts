@@ -1,139 +1,199 @@
-import * as math from 'mathjs';
-import { Solution, SolutionStep } from '../types';
+export interface EquationStep {
+  equation: string;
+  explanation: string;
+}
 
-// Simulates a delay to mimic API call
-const simulateDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+export interface EquationSolution {
+  steps: EquationStep[];
+  result: string;
+  error?: string;
+}
 
-export const solveMathProblem = async (expression: string): Promise<Solution> => {
-  await simulateDelay(800);
+const parseLinearEquation = (equation: string): EquationSolution => {
+  const steps: EquationStep[] = [];
+  let error = '';
+  let result = '';
 
-  if (!expression.trim()) {
-    return errorSolution('Please enter a valid expression');
-  }
-
-  const isEquation = expression.includes('=');
-
-  return isEquation
-    ? solveEquation(expression)
-    : evaluateExpression(expression);
-};
-
-const evaluateExpression = (expression: string): Solution => {
   try {
-    const result = math.evaluate(expression);
-    const resultLatex = math.parse(result.toString()).toTex();
+    const formattedEq = equation.replace(/\s+/g, '');
+    steps.push({ equation: formattedEq, explanation: "Équation originale" });
 
-    const steps: SolutionStep[] = [
-      {
-        explanation: 'Original expression',
-        expression: math.parse(expression).toTex()
-      },
-      {
-        explanation: 'Simplified result',
-        expression: `= ${resultLatex}`
+    const [leftSide, rightSide] = formattedEq.split('=');
+    if (leftSide === undefined || rightSide === undefined) {
+      throw new Error("Format d'équation invalide");
+    }
+
+    const rhs = rightSide !== '0' ? `-(${rightSide})` : '0';
+    steps.push({
+      equation: `${leftSide} ${rhs !== '0' ? `+ ${rhs}` : ''} = 0`,
+      explanation: "Soustraire le terme de droite des deux côtés"
+    });
+
+    const rhsInverted = rightSide.replace(/([+-]?)(\d+)/g, (_, sign, num) =>
+      sign === '+' ? `-${num}` : `+${num}`
+    );
+
+    const allTerms = `${leftSide}${rhsInverted}`.split(/(?=[+-])/);
+    let xCoeff = 0;
+    let constant = 0;
+
+    for (let term of allTerms) {
+      term = term.trim();
+      if (!term) continue;
+      if (term.includes('x')) {
+        const coeff = term.replace('x', '');
+        xCoeff += coeff === '' || coeff === '+' ? 1 : coeff === '-' ? -1 : parseFloat(coeff);
+      } else {
+        const val = parseFloat(term);
+        if (!isNaN(val)) constant += val;
       }
-    ];
+    }
 
-    return {
-      steps,
-      result: resultLatex,
-      isLoading: false
-    };
-  } catch (error) {
-    return errorSolution(`Error evaluating expression: ${(error as Error).message}`);
+    steps.push({
+      equation: `${xCoeff}x ${constant >= 0 ? '+' : '-'} ${Math.abs(constant)} = 0`,
+      explanation: "Simplification des termes"
+    });
+
+    if (xCoeff === 0) {
+      throw new Error(constant === 0 ? "Infinité de solutions" : "Pas de solution");
+    }
+
+    const solution = -constant / xCoeff;
+    result = `x = ${solution.toFixed(2)}`;
+
+    steps.push({
+      equation: result,
+      explanation: `Diviser les deux côtés par ${xCoeff}`
+    });
+
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Erreur inconnue";
   }
+
+  return { steps, result, error };
 };
 
-const solveEquation = (equation: string): Solution => {
+const solveQuadraticEquation = (equation: string): EquationSolution => {
+  const steps: EquationStep[] = [];
+  let error = '';
+  let result = '';
+
   try {
-    const [left, right] = equation.split('=').map(side => side.trim());
+    const formattedEq = equation.replace(/\s+/g, '');
+    steps.push({ equation: formattedEq, explanation: "Équation originale" });
 
-    if (!left || !right) {
-      return errorSolution('Invalid equation format.');
+    const [leftSide, rightSide] = formattedEq.split('=');
+    if (leftSide === undefined || rightSide === undefined) {
+      throw new Error("Format d'équation invalide");
     }
 
-    const leftExpr = math.parse(left);
-    const rightExpr = math.parse(right);
+    const leftTerms = leftSide.split(/(?=[+-])/);
+    let a = 0, b = 0, c = 0;
 
-    const standardForm = new math.OperatorNode('-', 'subtract', [leftExpr, rightExpr]);
-    const simplified = math.simplify(standardForm);
-
-    const simplifiedTex = simplified.toTex();
-    const variables = extractVariables(equation);
-
-    if (variables.length === 0) {
-      return errorSolution('No variable found in the equation');
-    } else if (variables.length > 1) {
-      return errorSolution('Only single-variable equations are supported');
-    }
-
-    const variable = variables[0];
-    const polyCoeffs = getPolynomialCoefficients(simplified, variable);
-
-    if (!polyCoeffs) {
-      return errorSolution('Unable to extract polynomial coefficients');
-    }
-
-    const roots = math.roots(polyCoeffs);
-
-    const resultTex = roots.map((r, i) => `${variable}_{${i + 1}} = ${math.parse(r.toString()).toTex()}`).join(', ');
-
-    const steps: SolutionStep[] = [
-      {
-        explanation: 'Original equation',
-        expression: `${leftExpr.toTex()} = ${rightExpr.toTex()}`
-      },
-      {
-        explanation: 'Rewritten in standard form',
-        expression: `${simplifiedTex} = 0`
-      },
-      {
-        explanation: `Solving for ${variable}`,
-        expression: resultTex
+    for (const termRaw of leftTerms) {
+      const term = termRaw.trim();
+      if (term.includes('x^2')) {
+        const coeff = term.replace('x^2', '');
+        a += coeff === '' || coeff === '+' ? 1 : coeff === '-' ? -1 : parseFloat(coeff);
+      } else if (term.includes('x')) {
+        const coeff = term.replace('x', '');
+        b += coeff === '' || coeff === '+' ? 1 : coeff === '-' ? -1 : parseFloat(coeff);
+      } else {
+        const val = parseFloat(term);
+        if (!isNaN(val)) c += val;
       }
-    ];
+    }
 
-    return {
-      steps,
-      result: resultTex,
-      isLoading: false
-    };
-  } catch (error) {
-    return errorSolution(`Error solving equation: ${(error as Error).message}`);
+    if (rightSide && rightSide !== '0') {
+      const rightValue = parseFloat(rightSide);
+      if (!isNaN(rightValue)) c -= rightValue;
+    }
+
+    steps.push({
+      equation: `${a}x² + ${b}x + ${c} = 0`,
+      explanation: "Forme standard de l'équation quadratique"
+    });
+
+    if (a === 0) {
+      return parseLinearEquation(`${b}x + ${c} = 0`);
+    }
+
+    const discriminant = b * b - 4 * a * c;
+    steps.push({
+      equation: `Δ = ${b}² - 4×${a}×${c} = ${discriminant}`,
+      explanation: "Calcul du discriminant"
+    });
+
+    if (discriminant < 0) {
+      throw new Error("Pas de solution réelle (discriminant négatif)");
+    }
+
+    if (discriminant === 0) {
+      const sol = (-b / (2 * a)).toFixed(2);
+      result = `x = ${sol} (solution double)`;
+      steps.push({
+        equation: result,
+        explanation: "Solution unique (discriminant nul)"
+      });
+    } else {
+      const sqrtD = Math.sqrt(discriminant);
+      const x1 = (-b + sqrtD) / (2 * a);
+      const x2 = (-b - sqrtD) / (2 * a);
+      result = `x₁ = ${x1.toFixed(2)}, x₂ = ${x2.toFixed(2)}`;
+      steps.push({
+        equation: `x = [-${b} ± √${discriminant}] / (2×${a})`,
+        explanation: "Formule quadratique"
+      });
+    }
+
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Erreur inconnue";
   }
+
+  return { steps, result, error };
 };
 
-const extractVariables = (expression: string): string[] => {
-  const regex = /[a-zA-Z]/g;
-  const matches = expression.match(regex);
-  return matches ? [...new Set(matches)] : [];
-};
-
-// Try to get polynomial coefficients from an expression in one variable
-const getPolynomialCoefficients = (expr: math.MathNode, variable: string): number[] | null => {
+export const solveEquation = (input: string | string[]): EquationSolution => {
   try {
-    const poly = math.polynomialCoefficients(expr, variable);
-    return poly;
-  } catch (error) {
-    return null;
-  }
-};
+    if (Array.isArray(input)) {
+      if (input.length !== 2) {
+        throw new Error("Seuls les systèmes 2x2 sont supportés");
+      }
 
-const errorSolution = (message: string): Solution => ({
-  steps: [],
-  result: '',
-  isLoading: false,
-  error: message
-});
+      return {
+        steps: [{
+          equation: input.join('\n'),
+          explanation: "Système d'équations"
+        }],
+        result: "x = 1, y = 1",
+        error: "La résolution des systèmes n'est pas encore implémentée"
+      };
+    }
 
-export const generateGraphData = (expression: string) => {
-  try {
+    const equation = input.replace(/\s+/g, '');
+
+    if (/^x\s*=\s*-?\d+(\.\d+)?$/.test(equation)) {
+      return {
+        steps: [{ equation, explanation: "L'équation est déjà résolue pour x" }],
+        result: equation
+      };
+    }
+
+    if (equation.includes('x^2')) {
+      return solveQuadraticEquation(equation);
+    }
+
+    if (equation.includes('x')) {
+      return parseLinearEquation(equation);
+    }
+
+    throw new Error("Type d'équation non reconnu");
+
+  } catch (err) {
     return {
-      fn: expression,
-      color: '#2563EB'
+      steps: [],
+      result: '',
+      error: err instanceof Error ? err.message : "Erreur inconnue"
     };
-  } catch (error) {
-    console.error('Error generating graph data:', error);
-    return null;
   }
 };
